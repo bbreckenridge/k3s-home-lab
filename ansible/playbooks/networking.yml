@@ -1,0 +1,72 @@
+---
+- name: Deploy Networking & Service Mesh
+  hosts: localhost
+  connection: local
+  become: true
+  vars:
+    metallb_version: "0.13.12"
+    metallb_ip_range: "192.168.1.200-192.168.1.220"
+    istio_version: "1.20.0"
+
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+  tasks:
+    - name: Install Helm
+      shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      args:
+        creates: /usr/local/bin/helm
+
+    - name: Add MetalLB Helm Repo
+      shell: helm repo add metallb https://metallb.github.io/metallb && helm repo update
+      
+    - name: Install MetalLB
+      shell: |
+        helm upgrade --install metallb metallb/metallb \
+          --namespace metallb-system \
+          --create-namespace \
+          --wait
+    
+    - name: Wait for MetalLB Speaker
+      shell: kubectl rollout status daemonset metallb-speaker -n metallb-system --timeout=90s
+
+    - name: Configure MetalLB IP Pool (Layer 2)
+      shell: |
+        cat <<EOF | kubectl apply -f -
+        apiVersion: metallb.io/v1beta1
+        kind: IPAddressPool
+        metadata:
+          name: default-pool
+          namespace: metallb-system
+        spec:
+          addresses:
+          - {{ metallb_ip_range }}
+        ---
+        apiVersion: metallb.io/v1beta1
+        kind: L2Advertisement
+        metadata:
+          name: default-advertisement
+          namespace: metallb-system
+        EOF
+
+    - name: Add Istio Helm Repo
+      shell: helm repo add istio https://istio-release.storage.googleapis.com/charts && helm repo update
+
+    - name: Install Istio Base
+      shell: |
+        helm upgrade --install istio-base istio/base \
+          -n istio-system \
+          --create-namespace \
+          --wait
+
+    - name: Install Istiod
+      shell: |
+        helm upgrade --install istiod istio/istiod \
+          -n istio-system \
+          --wait
+
+    - name: Install Istio Ingress Gateway
+      shell: |
+        helm upgrade --install istio-ingressgateway istio/gateway \
+          -n istio-system \
+          --wait

@@ -1,0 +1,78 @@
+---
+- name: Setup NVIDIA GPU Support
+  hosts: localhost
+  connection: local
+  become: true
+  vars:
+    # Use the latest production branch for stability
+    nvidia_driver_package: "nvidia-driver"
+    
+  tasks:
+    - name: Enable Non-Free Repositories
+      apt_repository:
+        repo: "deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware"
+        state: present
+        update_cache: yes
+
+    - name: Install Kernel Headers
+      shell: apt-get install -y linux-headers-$(uname -r)
+      args:
+        creates: /usr/src/linux-headers-{{ ansible_kernel }}
+
+    - name: Install NVIDIA Driver (Server 535)
+      apt:
+        name: 
+          - nvidia-driver-535-server
+          - nvidia-utils-535-server
+        state: present
+        update_cache: yes
+
+
+
+
+    - name: Setup NVIDIA Container Toolkit Repo
+      shell: |
+        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg && \
+        curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+        sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+        tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+      args:
+        creates: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+    - name: Install NVIDIA Container Toolkit
+      apt:
+        name: nvidia-container-toolkit
+        state: present
+        update_cache: yes
+
+    - name: Remove Bad Config Template
+      file:
+        path: /var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl
+        state: absent
+
+    - name: Restart K3s to regenerate config (Clean)
+      systemd:
+        name: k3s
+        state: restarted
+
+    - name: Wait for K3s to generate config
+      wait_for:
+        path: /var/lib/rancher/k3s/agent/etc/containerd/config.toml
+        state: present
+        timeout: 60
+
+    - name: Copy Config to Template
+      copy:
+        src: /var/lib/rancher/k3s/agent/etc/containerd/config.toml
+        dest: /var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl
+        remote_src: yes
+        force: yes
+
+    - name: Patch Template with NVIDIA Runtime
+      shell: |
+        nvidia-ctk runtime configure --runtime=containerd --config=/var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl
+
+    - name: Restart K3s to apply NVIDIA config
+      systemd:
+        name: k3s
+        state: restarted
