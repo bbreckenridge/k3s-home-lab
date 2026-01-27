@@ -1,6 +1,6 @@
 # 🚀 Homelab & AI Orchestration: Master Engineering Specification
 
-## 0. Executive Summary
+## Executive Summary
 This project implements a **High-Assurance Hybrid Cloud** environment on local hardware. The mission is to provide a production-grade playground for **AI Agent Orchestration** and **Media Automation** while maintaining strict **NIST 800-53 Rev 5** security controls.
 
 ### Hardware Core
