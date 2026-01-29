@@ -5,7 +5,7 @@
   become: true
   vars:
     metallb_version: "0.13.12"
-    metallb_ip_range: "192.168.1.200-192.168.1.220"
+    metallb_ip_range: "192.168.71.160-192.168.71.180"
     istio_version: "1.20.0"
 
   environment:
@@ -63,10 +63,11 @@
       shell: |
         helm upgrade --install istiod istio/istiod \
           -n istio-system \
-          --wait
+          --set pilot.resources.requests.memory=512Mi \
+          --wait --timeout 15m
 
     - name: Install Istio Ingress Gateway
       shell: |
         helm upgrade --install istio-ingressgateway istio/gateway \
           -n istio-system \
-          --wait
+          --wait --timeout 15m

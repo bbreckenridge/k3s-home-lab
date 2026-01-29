@@ -8,10 +8,8 @@
     nvidia_driver_package: "nvidia-driver"
     
   tasks:
-    - name: Enable Non-Free Repositories
-      apt_repository:
-        repo: "deb http://deb.debian.org/debian bookworm main contrib non-free non-free-firmware"
-        state: present
+    - name: Update Apt Cache
+      apt:
         update_cache: yes
 
     - name: Install Kernel Headers

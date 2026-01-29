@@ -160,7 +160,7 @@ To utilize the RTX 5090 for both 4K gaming and AI workloads, we implement **GPU 
 Handled automatically by `scripts/provision-ubuntu.ps1`.
 
 ### 5.2 Guest Configuration
-*   **OS**: Ubuntu 22.04 LTS (Kernel 5.15+ Azure-tuned)
+*   **OS**: Ubuntu 22.04 LTS (Kernel 6.x+ `linux-image-azure`)
 *   **Driver**: NVIDIA Server Driver 535+
 *   **Runtime**: Nvidia Container Toolkit
 
@@ -176,16 +176,58 @@ Enable SVM, IOMMU, SR-IOV in BIOS.
 choco install -y git ansible sops age.portable kubernetes-cli kubernetes-helm
 ```
 
+## Current State (AS-IS) 🚧
+
+**Architecture:**
+*   **Host:** Windows 11 Pro (Hyper-V)
+*   **Guest:** Ubuntu 22.04 LTS (Generation 2 VM, Secure Boot Disabled)
+*   **Networking:** Static IP `192.168.71.150`, MetalLB Range `192.168.71.160-180`.
+*   **GPU:** RTX 5090 (32GB) passed via DDA/GPU-P.
+*   **Driver Strategy:** **Host Driver Injection** (WSL2-style). We copy Windows drivers to Linux. Standard Linux drivers do NOT work with Consumer cards in this setup.
+
+## Quick Start
+
+### 1. Provision Infrastructure
+Run the PowerShell script to create the VM and apply GPU partitioning:
+> **Note:** Requires `Administrator` privileges.
+
+```powershell
+.\scripts\provision-ubuntu.ps1
+```
+
+### 2. Inject Host Drivers (Critical!)
+Because we are using a Consumer GPU (GeForce), we must inject the Windows drivers into the VM.
+
+**Step A: Copy Drivers from Host (Run on Windows)**
+```powershell
+.\scripts\inject-drivers.ps1
+```
+
+**Step B: Install Drivers in VM (Run on Ubuntu)**
+```bash
+sudo ./k3slab/scripts/install-host-drivers.sh
+sudo reboot
+```
+
+### 3. Deploy Cluster (Ansible)
+
 ### Step 3: Provisioning K3s Node (PowerShell)
 
 We use a unified script to create the Ubuntu VM, configure the Network, and partitioning the GPU.
 
-**Prerequisite:** Download **Ubuntu 22.04 Server ISO**.
+**Prerequisite:** Download **Ubuntu 22.04 Server**
 
 ```powershell
 # Run in Admin PowerShell
-.\scripts\provision-ubuntu.ps1 -IsoPath "C:\Path\To\ubuntu-22.04-live-server-amd64.iso"
+# Run in Admin PowerShell
+.\scripts\provision-ubuntu.ps1
+# (Default ISO path: D:\ISOs\ubuntu-24.04.3-live-server-amd64.iso)
 ```
+
+> [!IMPORTANT]
+> **RTX 5090 / Consumer GPU "Insufficient Resources" Error:**
+> If the VM fails to start with `0x800705AA`, the Host is likely reporting a capped "Partitionable Limit" (often 953MB).
+> **Fix:** Manually set the partition size to be *under* this limit (e.g., 512MB) using `Set-VMGpuPartitionAdapter`. This is just a reservation; the Guest will still access the full VRAM.
 
 1.  Connect to the VM ("K3s-Node").
 2.  Install Ubuntu Server.
@@ -196,12 +238,13 @@ We use a unified script to create the Ubuntu VM, configure the Network, and part
 
 We use Ansible to provision the cluster and drivers.
 
-1.  **Update Inventory**: Edit `ansible/inventory/hosts.ini` with your new VM's IP.
+1.  **Update Inventory**: Ensure `ansible/inventory/hosts.ini` uses `localhost` (since we run the script *on* the VM).
 2.  **Bootstrap**:
 
 ```bash
-# On Proxmox/Ubuntu VM (SSH in first)
-# Copy the 'ansible' and 'scripts' folders to the VM via SCP first!
+# On the Ubuntu VM (SSH in first)
+# Copy project to VM (Run from Host)
+scp -r -o StrictHostKeyChecking=no . bbreckenridge@192.168.71.150:~/k3slab
 
 chmod +x scripts/bootstrap-ansible.sh
 ./scripts/bootstrap-ansible.sh
@@ -242,8 +285,11 @@ k3slab/
 │   ├── apps/                 # *arr Stack, AI Agents
 │   └── nvidia/               # Device Plugins
 └── scripts/                  # Provisioning & Bootstrap
-    ├── provision-ubuntu.ps1  # Hyper-V VM Creator
-    └── bootstrap-ansible.sh  # Guest Configuration Script
+    ├── provision-ubuntu.ps1    # Hyper-V VM Creator
+    ├── bootstrap-ansible.sh    # Guest Configuration Script
+    ├── inject-drivers.ps1      # Host Driver Extractor
+    ├── install-host-drivers.sh # Guest Driver Installer
+    └── configure-static-ip.sh  # IP Configuration
 ```
 
 ## 8. Storage & Backup Strategy 💾
@@ -276,6 +322,7 @@ We utilize a mix of virtualized disks and passed-through NVMe storage for perfor
 - [ ] **Keys**: Generate `age` key for SOPS.
 - [ ] **Provision**: Run `scripts/provision-ubuntu.ps1`.
 - [ ] **Install**: Install Ubuntu Server 22.04 LTS on the VM.
-- [ ] **Inventory**: Update `ansible/inventory/hosts.ini` with new IP.
+- [ ] **Drivers**: Inject Windows Drivers using `scripts/inject-drivers.ps1`.
+- [ ] **Kernel**: Install `linux-image-azure` on VM.
 - [ ] **Bootstrap**: Run `scripts/bootstrap-ansible.sh`.
 - [ ] **Verify**: Check `nvidia-smi` and `kubectl get nodes`.

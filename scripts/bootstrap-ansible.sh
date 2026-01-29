@@ -31,7 +31,9 @@ cd "$ANSIBLE_DIR"
 # 1. Pre-flight Cleanup (Fix bad GPU config state)
 echo "Cleaning up potential bad K3s config..."
 rm -f /var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl
-systemctl restart k3s
+if systemctl is-active --quiet k3s; then
+    systemctl restart k3s
+fi
 echo "Waiting for K3s to recover..."
 sleep 15
 
@@ -49,45 +51,6 @@ ansible-playbook -i inventory/hosts.ini playbooks/gpu-setup.yml
 
 # 5. Apply NVIDIA Device Plugin
 echo "Applying NVIDIA Device Plugin..."
-k3s kubectl apply -f - <<EOF
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: nvidia-device-plugin-daemonset
-  namespace: kube-system
-spec:
-  selector:
-    matchLabels:
-      name: nvidia-device-plugin-ds
-  updateStrategy:
-    type: RollingUpdate
-  template:
-    metadata:
-      labels:
-        name: nvidia-device-plugin-ds
-    spec:
-      tolerations:
-      - key: nvidia.com/gpu
-        operator: Exists
-        effect: NoSchedule
-      priorityClassName: "system-node-critical"
-      containers:
-      - image: nvcr.io/nvidia/k8s-device-plugin:v0.14.1
-        name: nvidia-device-plugin-ctr
-        env:
-          - name: FAIL_ON_INIT_ERROR
-            value: "false"
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
-        volumeMounts:
-        - name: device-plugin
-          mountPath: /var/lib/kubelet/device-plugins
-      volumes:
-      - name: device-plugin
-        hostPath:
-          path: /var/lib/kubelet/device-plugins
-EOF
+k3s kubectl apply -f "$REPO_ROOT/kubernetes/nvidia-device-plugin.yml"
 
 echo "✅ Deployment Complete!"

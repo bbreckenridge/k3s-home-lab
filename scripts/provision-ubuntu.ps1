@@ -3,8 +3,7 @@
 # Usage: .\scripts\provision-ubuntu.ps1 -IsoPath "C:\Path\To\ubuntu-22.04.3-live-server-amd64.iso"
 
 param(
-    [Parameter(Mandatory=$true)]
-    [string]$IsoPath
+    [string]$IsoPath = "D:\ISOs\ubuntu-24.04.3-live-server-amd64.iso"
 )
 
 $VMName = "K3s-Node"
