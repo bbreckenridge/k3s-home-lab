@@ -74,6 +74,9 @@ All technical decisions are mapped to federal security standards to ensure a "pr
 | **IA-8** | Non-Org Users | **Tailscale ACLs** | Mesh-only access for remote management. |
 | **AU-2** | Event Logging | **Grafana Loki** | Log levels: `info` for applications, `audit` for API server. |
 | **SC-8** | Transmission | **Istio mTLS** | X.509 certs rotated via Citadel; mTLS mode: `STRICT`. |
+| **SC-7** | Boundary Protection | **UFW Firewall** | Deny-All incoming; explicit allow for K3s/SSH only. |
+| **SI-4** | System Monitoring | **Fail2Ban** | Monitors `sshd` logs; bans IPs after 5 failed attempts. |
+| **SI-2** | Flaw Remediation | **Unattended Upgrades** | Automatic installation of critical security patches. |
 
 ---
 
@@ -222,7 +225,20 @@ This script parses your System32, finds the driver and the missing libs, and cop
     sudo bash ~/install-dkms-dxgkrnl.sh
     ```
 
-### Step 5: K3s & AI Bootstrap (Ansible)
+### Step 5: Security Hardening (NIST Baseline) 🛡️
+
+Before exposing services, apply the security baseline:
+
+```bash
+# On the Ubuntu VM
+sudo bash ~/harden-vm.sh
+```
+*   Configures UFW (Firewall)
+*   Installs/Configures Fail2Ban (SSH Protection)
+*   Enables Automatic Security Updates
+*   Hardens SSH Configuration
+
+### Step 6: K3s & AI Bootstrap (Ansible)
 
 ```bash
 # On the Ubuntu VM
@@ -230,7 +246,7 @@ chmod +x scripts/bootstrap-ansible.sh
 ./scripts/bootstrap-ansible.sh
 ```
 
-### Step 6: Verification
+### Step 7: Verification
 
 **Check GPU:**
 ```bash
@@ -265,6 +281,7 @@ k3slab/
     ├── install-azure-kernel.sh # Installs official linux-image-azure
     ├── install-dkms-dxgkrnl.sh # Compiles dxgkrnl module via DKMS
     ├── bootstrap-ansible.sh    # Ansible Wrapper
+    ├── harden-vm.sh            # Security Hardening (UFW/Fail2Ban/SSH)
     └── configure-static-ip.sh  # IP Configuration
 ```
 
@@ -303,4 +320,5 @@ We utilize a mix of virtualized disks and passed-through NVMe storage for perfor
 - [ ] **Inject**: Run `scripts/inject-drivers.ps1` (Copies Drivers + WSL Libs).
 - [ ] **Kernel**: Run `install-azure-kernel.sh` (Official Azure Kernel).
 - [ ] **Module**: Run `install-dkms-dxgkrnl.sh` (DKMS Build).
+- [ ] **Harden**: Run `harden-vm.sh` (Firewall & Security).
 - [ ] **Verify**: Check `nvidia-smi` and `kubectl get nodes`.

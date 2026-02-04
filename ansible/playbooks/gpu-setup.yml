@@ -12,18 +12,15 @@
       apt:
         update_cache: yes
 
-    - name: Install Kernel Headers
-      shell: apt-get install -y linux-headers-$(uname -r)
-      args:
-        creates: /usr/src/linux-headers-{{ ansible_kernel }}
+    # [SAFE MODE] Manual Driver Injection is handled by scripts/install-host-drivers.sh
+    # - name: Install Kernel Headers
+    #   shell: apt-get install -y linux-headers-$(uname -r)
+    #   args:
+    #     creates: /usr/src/linux-headers-{{ ansible_kernel }}
 
-    - name: Install NVIDIA Driver (Server 535)
-      apt:
-        name: 
-          - nvidia-driver-535-server
-          - nvidia-utils-535-server
-        state: present
-        update_cache: yes
+    # - name: Install NVIDIA Driver (Skipped - Using Host Drivers)
+    #   debug:
+    #     msg: "Skipping Driver Install - Manual Injection Active"
 
 
 
