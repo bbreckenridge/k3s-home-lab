@@ -3,7 +3,7 @@
 # Usage: .\scripts\provision-ubuntu.ps1 -IsoPath "C:\Path\To\ubuntu-22.04.3-live-server-amd64.iso"
 
 param(
-    [string]$IsoPath = "D:\ISOs\ubuntu-24.04.3-live-server-amd64.iso"
+    [string]$IsoPath = "D:\ISOs\ubuntu-22.04.5-live-server-amd64.iso"
 )
 
 $VMName = "K3s-Node"
@@ -42,7 +42,7 @@ $GPU = Get-VMHostPartitionableGpu | Where-Object {$_.Name -match "VEN_10DE"}
 if ($GPU) {
     Add-VMGpuPartitionAdapter -VMName $VMName -InstancePath $GPU.Name
     Set-VMGpuPartitionAdapter -VMName $VMName -MinPartitionVRAM 1GB -MaxPartitionVRAM 8GB -OptimalPartitionVRAM 4GB
-    Set-VM -VMName $VMName -GuestControlledCacheTypes $true -LowMemoryMappedIoSpace 3000MB -HighMemoryMappedIoSpace 33000MB
+    Set-VM -VMName $VMName -GuestControlledCacheTypes $true -LowMemoryMappedIoSpace 3000MB -HighMemoryMappedIoSpace 65536MB
     Write-Host "✅ GPU Partition Applied (RTX 5090 Split)" -ForegroundColor Green
 } else {
     Write-Warning "No NVIDIA GPU found for partitioning."

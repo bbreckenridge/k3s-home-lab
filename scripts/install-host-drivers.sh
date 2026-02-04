@@ -28,6 +28,16 @@ sudo cp -r "$DRIVER_FOLDER" "$DEST_DIR/"
 # Configure ld.so
 echo "🔗 Configuring Library Path..."
 echo "$DEST_DIR/$DRIVER_NAME" | sudo tee /etc/ld.so.conf.d/nvidia-wsl.conf
+echo "/usr/lib/wsl/lib" | sudo tee -a /etc/ld.so.conf.d/nvidia-wsl.conf
+
+# Install WSL Core Libraries
+EXTRA_LIB_SRC="$SOURCE_DIR/lib"
+EXTRA_LIB_DEST="/usr/lib/wsl/lib"
+if [ -d "$EXTRA_LIB_SRC" ]; then
+    echo "📂 Installing WSL core libraries to $EXTRA_LIB_DEST..."
+    sudo mkdir -p "$EXTRA_LIB_DEST"
+    sudo cp "$EXTRA_LIB_SRC/"*.so "$EXTRA_LIB_DEST/"
+fi
 
 # Fix permissions
 sudo chmod 755 -R "$DEST_DIR"

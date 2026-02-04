@@ -25,9 +25,20 @@ Write-Host "[>] Copying driver files (approx 1GB). This might take a minute..." 
 # Using scp -r to copy the folder
 scp -r -o StrictHostKeyChecking=no "$($DriverPath.FullName)" "${User}@${VM_IP}:~/host-drivers/"
 
+# 3b. Copy WSL Libraries (dxcore, d3d12)
+Write-Host "[>] Copying WSL libraries (libdxcore.so, libd3d12.so)..." -ForegroundColor Yellow
+$WslLibPath = "C:\Windows\System32\lxss\lib"
+ssh -o StrictHostKeyChecking=no $User@$VM_IP "mkdir -p ~/host-drivers/lib"
+scp -o StrictHostKeyChecking=no "$WslLibPath\libdxcore.so" "${User}@${VM_IP}:~/host-drivers/lib/"
+scp -o StrictHostKeyChecking=no "$WslLibPath\libd3d12.so" "${User}@${VM_IP}:~/host-drivers/lib/"
+
+# 4. Copy Install Script
+Write-Host "[>] Copying install script..." -ForegroundColor Cyan
+scp -o StrictHostKeyChecking=no ".\install-host-drivers.sh" "${User}@${VM_IP}:~/host-drivers/"
+
 if ($LASTEXITCODE -eq 0) {
     Write-Host "[+] Driver files copied successfully!" -ForegroundColor Green
-    Write-Host "-> Next Step: SSH into the VM and run: sudo ~/k3slab/scripts/install-host-drivers.sh"
+    Write-Host "-> Next Step: SSH into the VM and run: sudo ~/host-drivers/install-host-drivers.sh"
 } else {
     Write-Error "[!] SCP Failed. Check network connection."
 }

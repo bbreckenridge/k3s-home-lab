@@ -19,29 +19,31 @@ The environment utilizes **Type 1 Hypervisor (Hyper-V)** to host the AI workload
 
 ```mermaid
 graph TD
-    subgraph "L0: Physical Host (Windows 11)"
+    subgraph Host [L0: Physical Host Windows 11]
         NIC[Physical 10GbE NIC]
-        Switch[Hyper-V Switch 'PrimarySwitch']
+        Switch[Hyper-V Switch PrimarySwitch]
         GPU[RTX 5090]
     end
 
-    subgraph "L1: K3s Node (Ubuntu 22.04 VM)"
+    subgraph VM [L1: K3s Node Ubuntu 22.04 VM]
         UseSpace[User Space]
-        Kernel[Linux Kernel + dxgkrnl]
-        vGPU[Partitioned vGPU 8GB]
+        Kernel[Linux Kernel Azure 6.8+]
+        Module[dxgkrnl DKMS]
+        vGPU[Partitioned vGPU 16GB]
         K3s[K3s Single Node]
     end
 
-    subgraph "L2: Service Mesh"
+    subgraph ServiceMesh [L2: Service Mesh]
         Ingress[Istio Ingress Gateway]
         Auth[Keycloak Sidecar]
-        App[Workload / AI Agent]
+        App[Workload AI Agent]
     end
 
     NIC --> Switch
     Switch --> K3s
     GPU -.-> vGPU
-    vGPU -.-> Kernel
+    vGPU -.-> Module
+    Module --> Kernel
     Kernel --> K3s
     K3s --> Ingress
     Ingress --> Auth
@@ -176,18 +178,7 @@ Enable SVM, IOMMU, SR-IOV in BIOS.
 choco install -y git ansible sops age.portable kubernetes-cli kubernetes-helm
 ```
 
-## Current State (AS-IS) 🚧
-
-**Architecture:**
-*   **Host:** Windows 11 Pro (Hyper-V)
-*   **Guest:** Ubuntu 22.04 LTS (Generation 2 VM, Secure Boot Disabled)
-*   **Networking:** Static IP `192.168.71.150`, MetalLB Range `192.168.71.160-180`.
-*   **GPU:** RTX 5090 (32GB) passed via DDA/GPU-P.
-*   **Driver Strategy:** **Host Driver Injection** (WSL2-style). We copy Windows drivers to Linux. Standard Linux drivers do NOT work with Consumer cards in this setup.
-
-## Quick Start
-
-### 1. Provision Infrastructure
+### Step 3: Provision Infrastructure
 Run the PowerShell script to create the VM and apply GPU partitioning:
 > **Note:** Requires `Administrator` privileges.
 
@@ -195,67 +186,51 @@ Run the PowerShell script to create the VM and apply GPU partitioning:
 .\scripts\provision-ubuntu.ps1
 ```
 
-### 2. Inject Host Drivers (Critical!)
-Because we are using a Consumer GPU (GeForce), we must inject the Windows drivers into the VM.
+> [!IMPORTANT]
+> **RTX 5090 / Consumer GPU "Insufficient Resources" Error:**
+> If the VM fails to start with `0x800705AA`, the Host is likely reporting a capped "Partitionable Limit".
+> **Fix:** The script intentionally sets the partition VRAM to 512MB to bypass the launch check. The Guest will still access the full VRAM.
 
-**Step A: Copy Drivers from Host (Run on Windows)**
+### Step 4: Inject Drivers (The critical "Consumer GPU" fix) 🌶️
+Because we are using a Consumer GPU (GeForce) in a VM, we must manually inject both the Driver Store files AND the WSL compatibility libraries (`libdxcore.so`).
+
+**A. On Windows (Admin PowerShell):**
+This script parses your System32, finds the driver and the missing libs, and copies them to the VM (`~/host-drivers`).
 ```powershell
 .\scripts\inject-drivers.ps1
 ```
 
-**Step B: Install Drivers in VM (Run on Ubuntu)**
-```bash
-sudo ./k3slab/scripts/install-host-drivers.sh
-sudo reboot
-```
+**B. On Ubuntu (SSH):**
 
-### 3. Deploy Cluster (Ansible)
+1.  **Install the User-Space Drivers**:
+    ```bash
+    sudo bash ~/host-drivers/install-host-drivers.sh
+    ```
+    *Verifies `libdxcore.so` and `libd3d12.so` are linked in `/usr/lib/wsl/lib`.*
 
-### Step 3: Provisioning K3s Node (PowerShell)
+2.  **Install the Kernel (Official Azure + DKMS)**:
+    We use the official Azure kernel (for Hyper-V support) and build the `dxgkrnl` module manually via DKMS.
 
-We use a unified script to create the Ubuntu VM, configure the Network, and partitioning the GPU.
+    ```bash
+    # 1. Install Azure Kernel (6.8+)
+    sudo bash ~/install-azure-kernel.sh
+    # (VM will reboot automatically)
 
-**Prerequisite:** Download **Ubuntu 22.04 Server**
+    # 2. Select "Ubuntu with Linux ... azure" in GRUB if prompted.
 
-```powershell
-# Run in Admin PowerShell
-# Run in Admin PowerShell
-.\scripts\provision-ubuntu.ps1
-# (Default ISO path: D:\ISOs\ubuntu-24.04.3-live-server-amd64.iso)
-```
+    # 3. Install dxgkrnl via DKMS
+    sudo bash ~/install-dkms-dxgkrnl.sh
+    ```
 
-> [!IMPORTANT]
-> **RTX 5090 / Consumer GPU "Insufficient Resources" Error:**
-> If the VM fails to start with `0x800705AA`, the Host is likely reporting a capped "Partitionable Limit" (often 953MB).
-> **Fix:** Manually set the partition size to be *under* this limit (e.g., 512MB) using `Set-VMGpuPartitionAdapter`. This is just a reservation; the Guest will still access the full VRAM.
-
-1.  Connect to the VM ("K3s-Node").
-2.  Install Ubuntu Server.
-    *   **Important**: Enable "Install OpenSSH Server".
-3.  Note the IP address (`ip addr`).
-
-### Step 4: K3s & AI Bootstrap (Ansible)
-
-We use Ansible to provision the cluster and drivers.
-
-1.  **Update Inventory**: Ensure `ansible/inventory/hosts.ini` uses `localhost` (since we run the script *on* the VM).
-2.  **Bootstrap**:
+### Step 5: K3s & AI Bootstrap (Ansible)
 
 ```bash
-# On the Ubuntu VM (SSH in first)
-# Copy project to VM (Run from Host)
-scp -r -o StrictHostKeyChecking=no . bbreckenridge@192.168.71.150:~/k3slab
-
+# On the Ubuntu VM
 chmod +x scripts/bootstrap-ansible.sh
 ./scripts/bootstrap-ansible.sh
 ```
 
-This acts as a "One-Click Deploy" for:
-*   K3s Cluster
-*   Networking (MetalLB + Istio)
-*   NVIDIA Drivers & Container Toolkit
-
-### Step 5: Verification
+### Step 6: Verification
 
 **Check GPU:**
 ```bash
@@ -273,6 +248,8 @@ kubectl describe node | grep nvidia.com/gpu
 
 ## 7. Repository Directory Structure 📂
 
+Cleaned up to show only verified production scripts.
+
 ```text
 k3slab/
 ├── .sops.yaml                # Secret encryption policy
@@ -281,16 +258,17 @@ k3slab/
 │   ├── playbooks/            # K3s install, GPU setup
 │   └── inventory/            # Dynamic host mapping
 ├── kubernetes/               # GitOps Manifests (ArgoCD)
-│   ├── core/                 # Istio, Keycloak, ArgoCD
-│   ├── apps/                 # *arr Stack, AI Agents
-│   └── nvidia/               # Device Plugins
 └── scripts/                  # Provisioning & Bootstrap
-    ├── provision-ubuntu.ps1    # Hyper-V VM Creator
-    ├── bootstrap-ansible.sh    # Guest Configuration Script
-    ├── inject-drivers.ps1      # Host Driver Extractor
-    ├── install-host-drivers.sh # Guest Driver Installer
+    ├── provision-ubuntu.ps1    # Hyper-V VM Creator & GPU-P Config
+    ├── inject-drivers.ps1      # Host Driver & WSL Lib Extractor (Windows)
+    ├── install-host-drivers.sh # Guest Driver Installer (Ubuntu)
+    ├── install-azure-kernel.sh # Installs official linux-image-azure
+    ├── install-dkms-dxgkrnl.sh # Compiles dxgkrnl module via DKMS
+    ├── bootstrap-ansible.sh    # Ansible Wrapper
     └── configure-static-ip.sh  # IP Configuration
 ```
+
+---
 
 ## 8. Storage & Backup Strategy 💾
 
@@ -322,7 +300,7 @@ We utilize a mix of virtualized disks and passed-through NVMe storage for perfor
 - [ ] **Keys**: Generate `age` key for SOPS.
 - [ ] **Provision**: Run `scripts/provision-ubuntu.ps1`.
 - [ ] **Install**: Install Ubuntu Server 22.04 LTS on the VM.
-- [ ] **Drivers**: Inject Windows Drivers using `scripts/inject-drivers.ps1`.
-- [ ] **Kernel**: Install `linux-image-azure` on VM.
-- [ ] **Bootstrap**: Run `scripts/bootstrap-ansible.sh`.
+- [ ] **Inject**: Run `scripts/inject-drivers.ps1` (Copies Drivers + WSL Libs).
+- [ ] **Kernel**: Run `install-azure-kernel.sh` (Official Azure Kernel).
+- [ ] **Module**: Run `install-dkms-dxgkrnl.sh` (DKMS Build).
 - [ ] **Verify**: Check `nvidia-smi` and `kubectl get nodes`.
