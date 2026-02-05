@@ -49,7 +49,11 @@ ansible-playbook -i inventory/hosts.ini playbooks/networking.yml
 echo "Running GPU Setup Playbook..."
 ansible-playbook -i inventory/hosts.ini playbooks/gpu-setup.yml
 
-# 5. Apply NVIDIA Device Plugin
+# 5. Run Platform Services Playbook
+echo "Running Platform Services (Tailscale, Keycloak, Grafana)..."
+ansible-playbook -i inventory/hosts.ini playbooks/platform-services.yml
+
+# 6. Apply NVIDIA Device Plugin
 echo "Applying NVIDIA Device Plugin..."
 k3s kubectl apply -f "$REPO_ROOT/kubernetes/nvidia-device-plugin.yml"
 

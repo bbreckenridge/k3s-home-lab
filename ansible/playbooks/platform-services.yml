@@ -1,0 +1,92 @@
+---
+- name: bootstrap_platform_services
+  hosts: k3s_cluster
+  become: true
+  vars:
+    tailscale_auth_key: "" # User to provide or manual login
+
+  tasks:
+    # --- TAILSCALE (Host Level) ---
+    - name: Install Tailscale Dependencies
+      apt:
+        name: [curl, apt-transport-https]
+        state: present
+        update_cache: yes
+
+    - name: Add Tailscale Repo Key
+      get_url:
+        url: https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg
+        dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+        mode: '0644'
+
+    - name: Add Tailscale Repository
+      get_url:
+        url: https://pkgs.tailscale.com/stable/ubuntu/jammy.tailscale-keyring.list
+        dest: /etc/apt/sources.list.d/tailscale.list
+
+    - name: Install Tailscale
+      apt:
+        name: tailscale
+        state: latest
+        update_cache: yes
+
+    - name: Check Tailscale Status
+      command: tailscale status
+      register: tailscale_status
+      failed_when: false
+      changed_when: false
+
+    - name: Enable Tailscale (Manual Auth Required if no key)
+      command: "tailscale up --authkey={{ tailscale_auth_key }}"
+      when: tailscale_status.rc != 0 and tailscale_auth_key != ""
+      ignore_errors: true
+      register: tailscale_up
+
+    - name: Tailscale Auth Instructions
+      debug:
+        msg: "Tailscale installed. If no auth key provided, run 'sudo tailscale up' manually on the host to authenticate."
+      when: tailscale_status.rc != 0 and tailscale_auth_key == ""
+
+    # --- HELM CONFIG ---
+    - name: Install Helm
+      snap:
+        name: helm
+        classic: true
+
+    - name: Add Bitnami Helm Repo
+      kubernetes.core.helm_repository:
+        name: bitnami
+        repo_url: "https://charts.bitnami.com/bitnami"
+    
+    - name: Add Grafana Helm Repo
+      kubernetes.core.helm_repository:
+        name: grafana
+        repo_url: "https://grafana.github.io/helm-charts"
+
+    # --- KEYCLOAK (Cluster Level) ---
+    - name: Install Keycloak
+      kubernetes.core.helm:
+        name: keycloak
+        chart_ref: bitnami/keycloak
+        release_namespace: platform-services
+        create_namespace: true
+        wait: yes
+        values:
+          auth:
+            adminUser: admin
+            adminPassword: "USarmy12$$" # Change in production!
+          service:
+            type: LoadBalancer
+
+    # --- GRAFANA (Cluster Level) ---
+    - name: Install Grafana
+      kubernetes.core.helm:
+        name: grafana
+        chart_ref: grafana/grafana
+        release_namespace: platform-services
+        create_namespace: true
+        wait: yes
+        values:
+          adminPassword: "USarmy12$$" # Change in production!
+          service:
+            type: LoadBalancer

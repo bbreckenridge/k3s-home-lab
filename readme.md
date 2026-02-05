@@ -236,6 +236,18 @@ spec:
 
 ---
 
+## 4.3 Platform Services Stack 🧩
+
+Core shared services provide identity, observability, and remote access.
+
+| Service | Component | Function | Access |
+| :--- | :--- | :--- | :--- |
+| **Tailscale** | **Remote Access** | Secure, zero-config VPN for accessing the host/cluster from anywhere. | `sudo tailscale up` |
+| **Keycloak** | **Identity (IAM)** | OIDC Provider for all cluster services. MFA/SSO enforcement. | [auth.home.lab](https://auth.home.lab) |
+| **Grafana** | **Observability** | Visualizations for Cluster Metrics, GPU usage, and Logs (Loki). | [grafana.home.lab](https://grafana.home.lab) |
+
+---
+
 ## 5. The GPU Pipeline: Gaming & AI Coexistence 🏎️
 
 To utilize the RTX 5090 for both 4K gaming and AI workloads, we implement **GPU Partitioning (GPU-P)** directly on Hyper-V.
@@ -304,7 +316,33 @@ This script parses your System32, finds the driver and the missing libs, and cop
     sudo bash ~/install-dkms-dxgkrnl.sh
     ```
 
-### Step 5: Security Hardening (NIST Baseline) 🛡️
+### Step 5: GPU Cluster Integration (The "Secret Sauce") 🧪
+
+Standard K3s installs will **NOT** see the GPU by default. You must enforce the NVIDIA runtime and deploy the device plugin.
+
+1.  **Enforce NVIDIA Runtime in K3s**:
+    Edit `/var/lib/rancher/k3s/agent/etc/containerd/config.toml` (or create a template) to set:
+    `default_runtime_name = "nvidia"`
+
+2.  **Deploy Device Plugin (Helm)**:
+    ```bash
+    helm repo add nvdp https://nvidia.github.io/k8s-device-plugin
+    helm install nvdp nvdp/nvidia-device-plugin \
+      --namespace kube-system \
+      --set runtimeClassName=nvidia \
+      --set failOnInitError=false \
+      --set compatWithCPUManager=false
+    ```
+
+3.  **Restart K3s & Node**:
+    The Kubelet requires a restart to pick up the new runtime sockets.
+    ```bash
+    systemctl restart k3s
+    # If still 0 capacity, reboot the VM:
+    sudo reboot
+    ```
+
+### Step 6: Security Hardening (NIST Baseline) 🛡️
 
 Before exposing services, apply the security baseline:
 
@@ -317,7 +355,7 @@ sudo bash ~/harden-vm.sh
 *   Enables Automatic Security Updates
 *   Hardens SSH Configuration
 
-### Step 6: K3s & AI Bootstrap (Ansible)
+### Step 7: K3s & AI Bootstrap (Ansible)
 
 ```bash
 # On the Ubuntu VM
@@ -325,7 +363,16 @@ chmod +x scripts/bootstrap-ansible.sh
 ./scripts/bootstrap-ansible.sh
 ```
 
-### Step 7: Verification
+**What this does:**
+1.  Deploys K3s Cluster (Single Node).
+2.  Configures Networking (MetalLB, Istio).
+3.  Partitions GPU & Installs Device Plugin.
+4.  **Bootstraps Platform Services** (Tailscale, Keycloak, Grafana).
+
+> [!NOTE]
+> **Tailscale Auth**: You may need to run `sudo tailscale up` manually on the VM to authenticate if an auth key was not provided.
+
+### Step 8: Verification
 
 **Check GPU:**
 ```bash
@@ -402,4 +449,6 @@ We define recovery strategies based on the criticality and volatility of the dat
 - [ ] **Kernel**: Run `install-azure-kernel.sh` (Official Azure Kernel).
 - [ ] **Module**: Run `install-dkms-dxgkrnl.sh` (DKMS Build).
 - [ ] **Harden**: Run `harden-vm.sh` (Firewall & Security).
+- [ ] **GPU**: Patch `config.toml` & Install `nvdp` Helm Chart.
+- [ ] **Services**: Verify Keycloak, Grafana, and Tailscale are running.
 - [ ] **Verify**: Check `nvidia-smi` and `kubectl get nodes`.
