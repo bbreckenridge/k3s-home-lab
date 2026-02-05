@@ -74,7 +74,7 @@
         values:
           auth:
             adminUser: admin
-            adminPassword: "USarmy12$$" # Change in production!
+            adminPassword: "" # Change in production!
           service:
             type: LoadBalancer
 
@@ -87,6 +87,6 @@
         create_namespace: true
         wait: yes
         values:
-          adminPassword: "USarmy12$$" # Change in production!
+          adminPassword: "" # Change in production!
           service:
             type: LoadBalancer
