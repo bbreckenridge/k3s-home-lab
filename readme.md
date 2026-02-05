@@ -15,7 +15,16 @@ This project implements a **High-Assurance Hybrid Cloud** environment on local h
 
 The environment utilizes **Type 1 Hypervisor (Hyper-V)** to host the AI workload directly. This eliminates nested virtualization overhead and solves kernel compatibility issues for GPU partitioning.
 
-### 1.1 Virtualization & Network Topology (L1)
+### 1.1 Resource Allocation
+
+| Hardware Component | Allocation Strategy | Host (Win 11) | Guest (Ubuntu VM) |
+| :--- | :--- | :--- | :--- |
+| **CPU (9950X3D)** | Game Mode Scheduling | 8 Cores (Gaming) | 8 Cores (Lab Services) |
+| **GPU (RTX 5090)** | GPU-P (Partitioning) | 100% 3D / Video Enc | ~25-50% CUDA Compute |
+| **RAM (64GB)** | Static Allocation | 32GB Reserved | 32GB Static |
+| **Network** | Virtual Switch | 10GbE Native | Virtualized Bridge |
+
+### 1.2 Virtualization & Network Topology (L1)
 
 ```mermaid
 graph TD
@@ -50,14 +59,84 @@ graph TD
     Auth --> App
 ```
 
-### 1.2 Resource Allocation
+### 1.2.1 Secure Traffic Flow (Life of a Packet) 📡
 
-| Hardware Component | Allocation Strategy | Host (Win 11) | Guest (Ubuntu VM) |
-| :--- | :--- | :--- | :--- |
-| **CPU (9950X3D)** | Game Mode Scheduling | 8 Cores (Gaming) | 8 Cores (Lab Services) |
-| **GPU (RTX 5090)** | GPU-P (Partitioning) | 100% 3D / Video Enc | ~25-50% CUDA Compute |
-| **RAM (64GB)** | Static Allocation | 32GB Reserved | 32GB Static |
-| **Network** | Virtual Switch | 10GbE Native | Virtualized Bridge |
+This diagram illustrates the **Zero Trust** path for a user streaming media (e.g., Jellyfin). All traffic is inspected, authenticated, and encrypted before reaching the workload.
+
+```mermaid
+graph LR
+    %% Node Styles
+    classDef user fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+    classDef security fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,stroke-dasharray: 5 5;
+    classDef infra fill:#e3f2fd,stroke:#1565c0,stroke-width:2px;
+    classDef mesh fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px;
+
+    subgraph Untrusted ["🛑 Untrusted Zone "]
+        Client([📱 Jellyfin Client]):::user
+    end
+
+    subgraph Perimeter ["🛡️ Host Security Perimeter"]
+        UFW[🔥 UFW Firewall<br/>Allow: 443/TCP]:::security
+    end
+
+    subgraph Cluster ["Kubernetes Cluster"]
+        LB[⚖️ MetalLB Layer 2<br/>VIP: 192.168.71.160]:::infra
+        
+        subgraph ServiceMesh ["🕸️ Istio Service Mesh (Zero Trust)"]
+            Gateway["🚪 Ingress Gateway<br/>TLS Term | AuthZ"]:::mesh
+            
+            subgraph Pod ["📦 Workload Pod"]
+                Sidecar["🕵️ Envoy Sidecar<br/>mTLS | Policy Enf."]:::mesh
+                Container[🎬 Jellyfin App<br/>Port: 8096]:::infra
+            end
+        end
+    end
+
+    %% Traffic Flow
+    Client -- "1. HTTPS (Encrypted)" --> UFW
+    UFW -- "2. Traffic Allowed" --> LB
+    LB -- "3. Route to Svc" --> Gateway
+    Gateway -- "4. mTLS (Strict)" --> Sidecar
+    Sidecar -- "5. Plaintext (Localhost)" --> Container
+```
+
+### 1.2.2 Secure Traffic Flow (The Return Path) ↩️
+
+Data returning to the user (e.g., the video stream) typically follows an established path allowed by the stateful firewall.
+
+```mermaid
+graph RL
+    %% Node Styles
+    classDef user fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+    classDef security fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,stroke-dasharray: 5 5;
+    classDef infra fill:#e3f2fd,stroke:#1565c0,stroke-width:2px;
+    classDef mesh fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px;
+
+    subgraph Cluster ["Kubernetes Cluster"]
+        subgraph ServiceMesh ["🕸️ Istio Service Mesh"]
+            subgraph Pod ["📦 Workload Pod"]
+                Container[🎬 Jellyfin App]:::infra
+                Sidecar["🕵️ Envoy Sidecar<br/>mTLS Encrypt"]:::mesh
+            end
+            
+            Gateway["🚪 Ingress Gateway<br/>TLS Termination"]:::mesh
+        end
+    end
+
+    subgraph Perimeter ["🛡️ Host Security Perimeter"]
+        UFW["🔥 UFW Firewall<br/>State: RELATED/ESTABLISHED"]:::security
+    end
+
+    subgraph Untrusted ["🛑 Untrusted Zone"]
+        Client([📱 Jellyfin Client]):::user
+    end
+
+    %% Traffic Flow
+    Container -- "1. Data Stream" --> Sidecar
+    Sidecar -- "2. mTLS Tunnel" --> Gateway
+    Gateway -- "3. HTTPS Response" --> UFW
+    UFW -- "4. Egress" --> Client
+```
 
 ---
 
@@ -289,22 +368,24 @@ k3slab/
 
 ## 8. Storage & Backup Strategy 💾
 
-### 8.1 Storage Architecture (Hyper-V + Ubuntu)
-We utilize a mix of virtualized disks and passed-through NVMe storage for performance and data integrity.
+### 8.1 Storage Architecture (Tiered Performance)
 
-| Dataset | Mount Point | Source | Strategy |
+| Tier | Hardware | Best Use Cases |
+| :--- | :--- | :--- |
+| **Boot Tier** | **2TB NVMe** | Linux OS (`/`), Root home, K3s binaries, System logs (`/var/log`). |
+| **Hot Tier** | **7.27TB NVMe** | Game data, K3s Etcd database, AI model weights, Active App DBs (MySQL/Postgres), Nextcloud cache. |
+| **Capacity Tier** | **16TB HDD (RAID)** | Movies, TV Shows, Music, Backups (Velero/VM Snapshots), Long-term archives. |
+
+### 8.2 Disaster Recovery & Resilience Strategy 🌪️
+
+We define recovery strategies based on the criticality and volatility of the data in each tier.
+
+| Tier | Failure Scenario | Recovery Strategy (DR) | RTO / RPO |
 | :--- | :--- | :--- | :--- |
-| **OS / Etcd** | `/var/lib/rancher` | VHDX (OS Drive) | Standard ext4 |
-| **Media Library** | `/mnt/media` | SMB Mount / VHDX | Data Drive (Separate VHDX) |
-| **AI Models** | `/mnt/models` | Local NVMe | High-perf scratch space |
-
-### 8.2 Backup Policy (3-2-1 Rule)
-
-| Type | Source | Destination | Frequency | Tool |
-| :--- | :--- | :--- | :--- | :--- |
-| **Cluster State** | K3s Etcd | TrueNAS / S3 | Hourly | `velero` |
-| **Config** | GitHub Repo | Local + GitHub | Push-Trigger | `git` |
-| **VM Snapshots** | Hyper-V | NAS / External HDD | Weekly | `Checkpoints` |
+| **Boot Tier** | **OS Corruption / Drive Loss** | **Rebuild (IaC)**. The Host OS is treated as "Cattle". Re-run `provision-ubuntu.ps1` + Ansible. No backups needed for binaries. | **RTO:** < 1 Hour<br>**RPO:** N/A |
+| **Hot Tier** | **NVMe Failure** | **Scheduled Snapshots**. K3s Etcd and App DBs are dumped nightly to the Capacity Tier. AI Models are re-downloaded from HuggingFace. | **RTO:** ~2 Hours<br>**RPO:** 24 Hours |
+| **Capacity Tier** | **Single Drive Failure** | **Hardware RAID 5**. The array tolerates 1 drive loss. Rebuild involves hot-swapping the bad drive. | **Zero Downtime** |
+| **Capacity Tier** | **Array Loss (Fire/Flood)** | **Cloud Sync (Criticals Only)**. "Unreplaced" media (Movies/TV) is lost. Personal docs & Keys are synced to encrypted S3/B2. | **RTO:** Days (Download) |
 
 ---
 
