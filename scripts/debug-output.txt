@@ -1,0 +1,33 @@
+=== 1. Host Driver Status ===
+GPU 0: NVIDIA GeForce RTX 5090 (UUID: GPU-f3cfe474-e733-edca-8e0d-f46fa5df4b23)
+
+=== 2. WSL Libraries ===
+-rw-r--r-- 1 root root 832144 Feb  4 19:21 /usr/lib/wsl/lib/libdxcore.so
+-rw-r--r-- 1 root root 789192 Feb  4 19:21 /usr/lib/wsl/lib/libd3d12.so
+
+=== 3. Containerd Config (Runtime) ===
+MISSING RUNTIME IN CONFIG
+
+=== 4. Device Plugin Pod Status ===
+CRITICAL: No Device Plugin Pod Found!
+NAME                                                  READY   STATUS    RESTARTS       AGE
+svclb-istio-ingressgateway-8f9286b0-8pw6s             3/3     Running   15 (12m ago)   3h23m
+nvdp-node-feature-discovery-gc-ddff6ff49-jz4sf        1/1     Running   2 (12m ago)    18m
+coredns-6799fbcd5-75g6b                               1/1     Running   5 (12m ago)    3h23m
+nvdp-node-feature-discovery-master-54b757bf5f-qssh7   1/1     Running   2 (12m ago)    18m
+local-path-provisioner-84db5d44d9-hbrnb               1/1     Running   10 (11m ago)   3h23m
+nvdp-node-feature-discovery-worker-cpjmj              1/1     Running   4 (11m ago)    18m
+metrics-server-67c658944b-x2k6w                       1/1     Running   10 (11m ago)   3h23m
+
+=== 7. Node Capacity ===
+Capacity:
+  cpu:                8
+  ephemeral-storage:  29210628Ki
+  hugepages-1Gi:      0
+  hugepages-2Mi:      0
+  memory:             8130472Ki
+  pods:               110
+Allocatable:
+  cpu:                8
+  ephemeral-storage:  28416098897
+  hugepages-1Gi:      0
