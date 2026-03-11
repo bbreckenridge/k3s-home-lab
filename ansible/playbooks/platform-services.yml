@@ -71,7 +71,7 @@
         src: ../manifests/cloudflare-secret.yaml.j2
         dest: /tmp/cloudflare-secret.yaml
       vars:
-        cloudflare_api_token: "{{ (lookup('community.sops.sops', '/home/bbreckenridge/secrets.enc.yaml') | from_yaml).cloudflare_api_token | default('placeholder') }}"
+        cloudflare_api_token: "{{ (lookup('community.sops.sops', '~/secrets/ansible/secrets.enc.yaml') | from_yaml).cloudflare_api_token | default('placeholder') }}"
       
     - name: Apply Cloudflare API Token Secret
       kubernetes.core.k8s:
@@ -122,7 +122,7 @@
             - name: KC_BOOTSTRAP_ADMIN_USERNAME
               value: "admin"
             - name: KC_BOOTSTRAP_ADMIN_PASSWORD
-              value: "{{ (lookup('community.sops.sops', '/home/bbreckenridge/secrets.enc.yaml') | from_yaml).admin_password }}"
+              value: "{{ (lookup('community.sops.sops', '~/secrets/ansible/secrets.enc.yaml') | from_yaml).admin_password }}"
             # Ensure legacy vars are empty to prevent wrapper script interference
             - name: KEYCLOAK_ADMIN
               value: ""
@@ -149,9 +149,9 @@
               tag: "17"
               pullPolicy: IfNotPresent
             auth:
-              postgresPassword: "{{ (lookup('community.sops.sops', '/home/bbreckenridge/secrets.enc.yaml') | from_yaml).postgres_password }}"
+              postgresPassword: "{{ (lookup('community.sops.sops', '~/secrets/ansible/secrets.enc.yaml') | from_yaml).postgres_password }}"
               username: bn_keycloak
-              password: "{{ (lookup('community.sops.sops', '/home/bbreckenridge/secrets.enc.yaml') | from_yaml).postgres_password }}"
+              password: "{{ (lookup('community.sops.sops', '~/secrets/ansible/secrets.enc.yaml') | from_yaml).postgres_password }}"
               database: keycloak
           service:
             type: LoadBalancer
@@ -172,7 +172,7 @@
         create_namespace: true
         wait: no # Debugging: Don't wait, so we can see why it fails
         values:
-          adminPassword: "{{ (lookup('community.sops.sops', '/home/bbreckenridge/secrets.enc.yaml') | from_yaml).grafana_password }}" # Change in production!
+          adminPassword: "{{ (lookup('community.sops.sops', '~/secrets/ansible/secrets.enc.yaml') | from_yaml).grafana_password }}" # Change in production!
           service:
             type: LoadBalancer
 
