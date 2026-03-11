@@ -31,6 +31,13 @@ ufw allow from any to any port 30000:32767 proto tcp comment 'NodePorts'
 ufw allow from any to any port 80 proto tcp comment 'Ingress HTTP'
 ufw allow from any to any port 443 proto tcp comment 'Ingress HTTPS'
 
+# Allow AdGuard Home DNS Resolution
+ufw allow 53/tcp comment 'AdGuard DNS TCP'
+ufw allow 53/udp comment 'AdGuard DNS UDP'
+
+# Allow Tailscale VPN Tunneling
+ufw allow 41641/udp comment 'Tailscale UDP'
+
 # Allow Flannel/VXLAN Overlay (Internal Cluster Traffic)
 ufw allow 8472/udp comment 'Flannel VXLAN'
 ufw allow 10250/tcp comment 'Kubelet Metrics'

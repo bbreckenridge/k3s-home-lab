@@ -18,6 +18,12 @@ inventory/hosts.ini
 
 # Secrets & Keys
 *.enc.yaml
+*.sops.yaml
+.sops.yaml
+decrypted_*.yaml
+secrets.yaml
+*_values.yaml
+*_vars.yaml
 *.key
 *.pem
 id_rsa
@@ -33,3 +39,9 @@ sops_age_keys.txt
 # Project Specific
 drivers-harvest/
 scripts/drivers-harvest/
+
+# Private network map (real IPs — do not commit)
+NETWORK-MAP.md
+
+# Unencrypted Ansible secrets
+ansible/inventory/group_vars/all/secrets.yaml

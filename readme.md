@@ -27,18 +27,18 @@ The environment utilizes **Type 1 Hypervisor (Hyper-V)** to host the AI workload
 ### 1.2 Virtualization & Network Topology (L1)
 
 > [!IMPORTANT]
-> The K3s VM uses a **single NIC** connected exclusively to the internal `K3sNatSwitch` (e.g., `10.100.0.0/24`). Internet access flows through Windows NAT via the gateway. The `PrimarySwitch` (external) adapter was intentionally removed from the VM to eliminate asymmetric routing.
+> The K3s VM uses a **single NIC** connected exclusively to the internal `K3sNatSwitch` (e.g., `<K3S-SUBNET>`). Internet access flows through Windows NAT via the gateway. The `PrimarySwitch` (external) adapter was intentionally removed from the VM to eliminate asymmetric routing.
 
 ```mermaid
 graph TD
     subgraph LAN ["🏠 Home LAN (<YOUR-LAN-SUBNET>)"]
-        Router["📡 Router\nDNS: <HOST-PC-IP>\nRoute: 10.100.0.0/24 → <HOST-PC-IP>"]
+        Router["📡 Router\nDNS: <HOST-PC-IP>\nRoute: <K3S-SUBNET> → <HOST-PC-IP>"]
         WiFi["📱 Wi-Fi Devices"]
     end
 
     subgraph Host ["💻 L0: Windows 11 Host (<HOST-PC-IP>)"]
         PrimarySwitch["🔌 PrimarySwitch\n(External NIC Bridge)"]
-        K3sNatSwitch["🔀 K3sNatSwitch\n10.100.0.1 Gateway\n(Windows NAT)"]
+        K3sNatSwitch["🔀 K3sNatSwitch\n<GATEWAY-IP> Gateway\n(Windows NAT)"]
         RemoteAccess["🛣️ RemoteAccess Service\n(IP Forwarding Enabled)"]
         PortProxy["🔁 PortProxy\nDNS :53 → AdGuard ClusterIP"]
         GPU[RTX 5090]
