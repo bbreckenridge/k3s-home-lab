@@ -70,4 +70,5 @@
       shell: |
         helm upgrade --install istio-ingressgateway istio/gateway \
           -n istio-system \
+          --set service.loadBalancerIP=192.168.100.160 \
           --wait --timeout 15m

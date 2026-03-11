@@ -1,5 +1,0 @@
-creation_rules:
-  - path_regex: .*\.enc\.yaml$
-    key_groups:
-      - age:
-          - age1your_public_key_here # Replace with your generated age public key

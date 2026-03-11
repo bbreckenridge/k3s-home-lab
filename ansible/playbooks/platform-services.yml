@@ -5,6 +5,9 @@
   vars:
     tailscale_auth_key: "" # User to provide or manual login
 
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
   tasks:
     # --- TAILSCALE (Host Level) ---
     - name: Install Tailscale Dependencies
@@ -12,30 +15,30 @@
         name: [curl, apt-transport-https]
         state: present
         update_cache: yes
-
+    
     - name: Add Tailscale Repo Key
       get_url:
         url: https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg
         dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
         mode: '0644'
-
+    
     - name: Add Tailscale Repository
       get_url:
         url: https://pkgs.tailscale.com/stable/ubuntu/jammy.tailscale-keyring.list
         dest: /etc/apt/sources.list.d/tailscale.list
-
+    
     - name: Install Tailscale
       apt:
         name: tailscale
         state: latest
         update_cache: yes
-
+    
     - name: Check Tailscale Status
       command: tailscale status
       register: tailscale_status
       failed_when: false
       changed_when: false
-
+    
     - name: Enable Tailscale (Manual Auth Required if no key)
       command: "tailscale up --authkey={{ tailscale_auth_key }}"
       when: tailscale_status.rc != 0 and tailscale_auth_key != ""
@@ -48,10 +51,37 @@
       when: tailscale_status.rc != 0 and tailscale_auth_key == ""
 
     # --- HELM CONFIG ---
-    - name: Install Helm
-      snap:
-        name: helm
-        classic: true
+    - name: Check for Helm
+      command: which helm
+      register: helm_check
+      failed_when: false
+      changed_when: false
+
+    - name: Install Helm (Script)
+      shell: |
+        curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        chmod 700 get_helm.sh
+        ./get_helm.sh
+        rm get_helm.sh
+      when: helm_check.rc != 0
+
+    # --- CERT-MANAGER ---
+    - name: Template Cloudflare API Token Secret
+      ansible.builtin.template:
+        src: ../manifests/cloudflare-secret.yaml.j2
+        dest: /tmp/cloudflare-secret.yaml
+      vars:
+        cloudflare_api_token: "{{ (lookup('community.sops.sops', '/home/bbreckenridge/secrets.enc.yaml') | from_yaml).cloudflare_api_token | default('placeholder') }}"
+      
+    - name: Apply Cloudflare API Token Secret
+      kubernetes.core.k8s:
+        state: present
+        src: /tmp/cloudflare-secret.yaml
+      
+    - name: Clean up temporary Cloudflare Secret
+      ansible.builtin.file:
+        path: /tmp/cloudflare-secret.yaml
+        state: absent
 
     - name: Add Bitnami Helm Repo
       kubernetes.core.helm_repository:
@@ -63,6 +93,11 @@
         name: grafana
         repo_url: "https://grafana.github.io/helm-charts"
 
+    - name: Add OpenTelemetry Helm Repo
+      kubernetes.core.helm_repository:
+        name: open-telemetry
+        repo_url: "https://open-telemetry.github.io/opentelemetry-helm-charts"
+
     # --- KEYCLOAK (Cluster Level) ---
     - name: Install Keycloak
       kubernetes.core.helm:
@@ -70,13 +105,63 @@
         chart_ref: bitnami/keycloak
         release_namespace: platform-services
         create_namespace: true
-        wait: yes
+        wait: no # Debugging: Don't wait, so we can see why it fails
         values:
+          global:
+            security:
+              allowInsecureImages: true
+          image:
+            registry: "public.ecr.aws"
+            tag: "26.1.0-debian-12-r0"
+          # Use the auto-generated PostgreSQL secret for DB password (avoids plain-text in extraEnvVars)
           auth:
-            adminUser: admin
-            adminPassword: "USarmy12$$" # Change in production!
+            existingSecret: "keycloak-postgresql"
+            passwordSecretKey: "password"
+          # Manually Configured to bypass Bitnami wrapper conflict with Keycloak 26
+          extraEnvVars:
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              value: "admin"
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              value: "{{ (lookup('community.sops.sops', '/home/bbreckenridge/secrets.enc.yaml') | from_yaml).admin_password }}"
+            # Ensure legacy vars are empty to prevent wrapper script interference
+            - name: KEYCLOAK_ADMIN
+              value: ""
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              value: ""
+            # Override DB host - Bitnami defaults to bare 'postgresql' hostname
+            - name: KEYCLOAK_DATABASE_HOST
+              value: "keycloak-postgresql"
+            - name: KEYCLOAK_DATABASE_PORT
+              value: "5432"
+            - name: KEYCLOAK_DATABASE_USER
+              value: "bn_keycloak"
+            - name: KEYCLOAK_DATABASE_NAME
+              value: "keycloak"
+            # Quarkus natively expands file paths for config values, bypassing env var string escaping.
+            # The bitnami keycloak chart automatically mounts the existingSecret to this path.
+            - name: KC_DB_PASSWORD
+              value: "${file:/opt/bitnami/keycloak/secrets/db-password}"
+          # Database Configuration (Internal Postgres)
+          postgresql:
+            enabled: true
+            image:
+              registry: "public.ecr.aws"
+              tag: "17"
+              pullPolicy: IfNotPresent
+            auth:
+              postgresPassword: "{{ (lookup('community.sops.sops', '/home/bbreckenridge/secrets.enc.yaml') | from_yaml).postgres_password }}"
+              username: bn_keycloak
+              password: "{{ (lookup('community.sops.sops', '/home/bbreckenridge/secrets.enc.yaml') | from_yaml).postgres_password }}"
+              database: keycloak
           service:
             type: LoadBalancer
+            loadBalancerIP: 192.168.71.162
+          # Override command to avoid chart/image argument conflicts
+          command:
+            - "/opt/bitnami/scripts/keycloak/entrypoint.sh"
+          args:
+            - "/opt/bitnami/scripts/keycloak/run.sh"
+            - "start-dev"
 
     # --- GRAFANA (Cluster Level) ---
     - name: Install Grafana
@@ -85,8 +170,146 @@
         chart_ref: grafana/grafana
         release_namespace: platform-services
         create_namespace: true
-        wait: yes
+        wait: no # Debugging: Don't wait, so we can see why it fails
         values:
-          adminPassword: "USarmy12$$" # Change in production!
+          adminPassword: "{{ (lookup('community.sops.sops', '/home/bbreckenridge/secrets.enc.yaml') | from_yaml).grafana_password }}" # Change in production!
           service:
             type: LoadBalancer
+
+    # --- OBSERVABILITY STACK (LGTM + OTel) ---
+    
+    # Mimir (Metrics) - Monolithic Mode for Single Node
+    - name: Install Mimir
+      kubernetes.core.helm:
+        name: mimir
+        chart_ref: grafana/mimir-distributed
+        release_namespace: observability
+        create_namespace: true
+        wait: no # Heavy install, don't block
+        values:
+          mimir:
+            structuredConfig:
+              common:
+                storage:
+                  backend: filesystem
+                  filesystem:
+                    dir: /data/mimir
+          # Resources Tuning for Single Node
+          ingester:
+            resources:
+              requests: {cpu: 10m, memory: 128Mi}
+          distributor:
+            resources:
+              requests: {cpu: 10m, memory: 64Mi}
+          querier:
+            resources:
+              requests: {cpu: 10m, memory: 128Mi}
+          query_frontend:
+            resources:
+              requests: {cpu: 10m, memory: 64Mi}
+          store_gateway:
+            resources:
+              requests: {cpu: 10m, memory: 64Mi}
+          compactor:
+            resources:
+              requests: {cpu: 10m, memory: 64Mi}
+          ruler:
+            resources:
+              requests: {cpu: 10m, memory: 64Mi}
+          minio:
+            enabled: true
+          alertmanager:
+            enabled: false # Use Grafana Alerting
+
+    # Loki (Logs) - Scalable Mode
+    - name: Install Loki
+      kubernetes.core.helm:
+        name: loki
+        chart_ref: grafana/loki
+        release_namespace: observability
+        create_namespace: true
+        wait: no
+        values:
+          loki:
+            useTestSchema: true
+            auth_enabled: false
+            commonConfig:
+              replication_factor: 1
+            storage:
+              type: 'filesystem'
+          deploymentMode: SingleBinary
+          singleBinary:
+            replicas: 1
+            resources:
+              requests: {cpu: 10m, memory: 128Mi}
+          # Disable scalable components to avoid conflict
+          read:
+            replicas: 0
+          write:
+            replicas: 0
+          backend:
+            replicas: 0
+          # Tune Cache (Memcached) Resources
+          chunksCache:
+            enabled: true
+            resources:
+              requests: {cpu: 10m, memory: 64Mi} 
+          resultsCache:
+            enabled: true
+            resources:
+              requests: {cpu: 10m, memory: 64Mi}
+          gateway:
+            resources:
+              requests: {cpu: 10m, memory: 32Mi}
+
+    # Tempo (Traces)
+    - name: Install Tempo
+      kubernetes.core.helm:
+        name: tempo
+        chart_ref: grafana/tempo
+        release_namespace: observability
+        create_namespace: true
+        wait: no
+        values:
+          tempo:
+            storage:
+              trace:
+                backend: local
+                local:
+                  path: /var/tempo/traces
+                wal:
+                  path: /var/tempo/wal
+          # The following `values` block was a duplicate and has been merged or removed if redundant.
+          # If specific `repository` or `tag` values are needed, they should be placed under the `tempo:` key.
+          # For example:
+          #   tempo:
+          #     repository: "grafana/tempo"
+          #     tag: "latest"
+          #     storage:
+          #       trace:
+          #         backend: local
+          #         local:
+          #           path: /var/tempo/traces
+          #         wal:
+          #           path: /var/tempo/wal
+          repository: "grafana/tempo"
+          tag: "latest"
+
+    # OpenTelemetry Collector (Disabled due to missing image.repository in chart)
+    # - name: Install OpenTelemetry Collector
+    #   kubernetes.core.helm:
+    #     name: otel-collector
+    #     chart_ref: open-telemetry/opentelemetry-collector
+    #     release_namespace: observability
+    #     create_namespace: true
+    #     wait: no
+    #     values:
+    #       mode: daemonset
+
+    # --- CUSTOM MANIFESTS ---
+    - name: Apply Custom Networking and Ingress Manifests
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ item }}"
+      with_fileglob:
+        - "../manifests/*.yaml"
