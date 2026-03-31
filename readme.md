@@ -19,9 +19,9 @@ The environment utilizes **Type 1 Hypervisor (Hyper-V)** to host the AI workload
 
 | Hardware Component | Allocation Strategy | Host (Win 11) | Guest (Ubuntu VM) |
 | :--- | :--- | :--- | :--- |
-| **CPU (9950X3D)** | Game Mode Scheduling | 8 Cores (Gaming) | 8 Cores (Lab Services) |
+| **CPU (9950X3D)** | Game Mode Scheduling | 24 vThreads (Host) | 8 vCPUs (Lab Services) |
 | **GPU (RTX 5090)** | GPU-P (Partitioning) | 100% 3D / Video Enc | ~25-50% CUDA Compute |
-| **RAM (64GB)** | Static Allocation | 32GB Reserved | 32GB Static |
+| **RAM (64GB)** | Static Allocation | 48GB Reserved | 16GB Static |
 | **Network** | Virtual Switch | 10GbE Native | Virtualized Bridge |
 
 ### 1.2 Virtualization & Network Topology (L1)
@@ -161,12 +161,12 @@ All technical decisions are mapped to federal security standards to ensure a "pr
 | **AC-6** | Least Privilege | **K8s RBAC** | ClusterRoles mapped to Keycloak groups (`admins`, `devs`). |
 | **IA-2** | Identification/Auth | **MFA (TOTP)** | Mandatory 2FA at Istio Gateway; seeds encrypted in Keycloak DB. |
 | **IA-8** | Non-Org Users | **Tailscale ACLs** | Mesh-only access for remote management. |
-| **AU-2** | Event Logging | **Grafana Loki** | Log levels: `info` for applications, `audit` for API server. |
+| **AU-2** | Event Logging | **Prometheus & Loki** | Aggregates metrics and logs from all pods in single-binary mode for resource efficiency. |
 | **SC-8(1)** | Cryptographic Protection | **Cert-Manager / Let's Encrypt** | Automated wildcard TLS certificate rotation via Cloudflare DNS-01 challenges. |
 | **SC-8** | Transmission | **Istio mTLS** | X.509 certs rotated via Citadel; mTLS mode: `STRICT`. |
 | **SC-7** | Boundary Protection | **UFW Firewall** | Deny-All incoming; explicit allow for K3s/SSH only. |
 | **SC-7(10)** | Deny by Default | **AdGuard Home** | Blocks known malicious domains via OISD threat lists natively. |
-| **SI-4** | System Monitoring | **Fail2Ban** | Monitors `sshd` logs; bans IPs after 5 failed attempts. |
+| **SI-4** | System Monitoring | **Grafana & Prometheus** | Real-time dashboards for health, resource usage, and security events. |
 | **SI-2** | Flaw Remediation | **Unattended Upgrades** | Automatic installation of critical security patches. |
 
 ---
@@ -274,10 +274,9 @@ We implement the full **Grafana LGTM** stack for deep insights, powered by **Ope
 
 | Component | Function | Mode |
 | :--- | :--- | :--- |
-| **Loki** | **Logs** | Distributed (Single Binary mode for resource efficiency). Aggregates logs from all pods. |
-| **Tempo** | **Traces** | Distributed Tracing backend. Visualizes request flows across microservices. |
-| **Mimir** | **Metrics** | Long-term Prometheus storage. scalable and durable metric backend. |
-| **OTel Collector** | **Collection** | Unified agent (DaemonSet) that scrapes logs, metrics, and traces and pushes to LGTM. |
+| **Loki** | **Logs** | Single Binary mode for resource efficiency. Aggregates logs from all pods. |
+| **Prometheus** | **Metrics** | Lightweight metric collection and alerting. Replaces Mimir for home-lab scale. |
+| **Grafana** | **Visualization** | Unified dashboarding for logs and metrics. |
 
 ---
 
@@ -505,7 +504,7 @@ We define recovery strategies based on the criticality and volatility of the dat
 - [ ] **Keys**: Generate `age` key for SOPS.
 - [ ] **Provision**: Run `scripts\provision-ubuntu.ps1`.
 - [ ] **Harden**: Run `scripts/harden-vm.sh` (Firewall & Security).
-- [ ] **K3s Bootstrap**: Run `scripts/bootstrap-ansible.sh` (K3s, Ansible, LGTM, Keycloak, AdGuard, Cert-Manager).
+- [ ] **K3s Bootstrap**: Run `scripts/bootstrap-ansible.sh` (K3s, Ansible, Lite LG, Keycloak, AdGuard, Cert-Manager).
 - [ ] **MetalLB**: Verify `L2Advertisement` is bound to `eth0` (the K3sNatSwitch adapter) — **not** `eth1`.
 - [ ] **AdGuard Rewrite**: Confirm `*.<YOUR-DOMAIN.COM>` resolves to `<INGRESS-IP>` (Istio Ingress), not the node IP.
 - [ ] **Windows Routing**: Enable HTTP/HTTPS PortProxy rules to point at Istio Ingress (`<INGRESS-IP>`).

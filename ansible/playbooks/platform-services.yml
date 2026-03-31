@@ -123,12 +123,10 @@
               value: "admin"
             - name: KC_BOOTSTRAP_ADMIN_PASSWORD
               value: "{{ (lookup('community.sops.sops', '~/secrets/ansible/secrets.enc.yaml') | from_yaml).admin_password }}"
-            # Ensure legacy vars are empty to prevent wrapper script interference
             - name: KEYCLOAK_ADMIN
               value: ""
             - name: KEYCLOAK_ADMIN_PASSWORD
               value: ""
-            # Override DB host - Bitnami defaults to bare 'postgresql' hostname
             - name: KEYCLOAK_DATABASE_HOST
               value: "keycloak-postgresql"
             - name: KEYCLOAK_DATABASE_PORT
@@ -137,10 +135,14 @@
               value: "bn_keycloak"
             - name: KEYCLOAK_DATABASE_NAME
               value: "keycloak"
-            # Quarkus natively expands file paths for config values, bypassing env var string escaping.
-            # The bitnami keycloak chart automatically mounts the existingSecret to this path.
             - name: KC_DB_PASSWORD
-              value: "${file:/opt/bitnami/keycloak/secrets/db-password}"
+              value: "{{ (lookup('community.sops.sops', '~/secrets/ansible/secrets.enc.yaml') | from_yaml).postgres_password }}"
+            - name: KC_PROXY_HEADERS
+              value: "xforwarded"
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+            - name: KC_HOSTNAME_STRICT_HTTPS
+              value: "false"
           # Database Configuration (Internal Postgres)
           postgresql:
             enabled: true
@@ -155,7 +157,7 @@
               database: keycloak
           service:
             type: LoadBalancer
-            loadBalancerIP: 192.168.71.162
+            loadBalancerIP: 192.168.100.162
           # Override command to avoid chart/image argument conflicts
           command:
             - "/opt/bitnami/scripts/keycloak/entrypoint.sh"
@@ -176,52 +178,26 @@
           service:
             type: LoadBalancer
 
-    # --- OBSERVABILITY STACK (LGTM + OTel) ---
+    # --- OBSERVABILITY STACK (LITE LG) ---
     
-    # Mimir (Metrics) - Monolithic Mode for Single Node
-    - name: Install Mimir
+    # Prometheus (Metrics) - Lite Version
+    - name: Install Prometheus
       kubernetes.core.helm:
-        name: mimir
-        chart_ref: grafana/mimir-distributed
+        name: prometheus
+        chart_ref: prometheus-community/prometheus
         release_namespace: observability
         create_namespace: true
-        wait: no # Heavy install, don't block
+        wait: no
         values:
-          mimir:
-            structuredConfig:
-              common:
-                storage:
-                  backend: filesystem
-                  filesystem:
-                    dir: /data/mimir
-          # Resources Tuning for Single Node
-          ingester:
+          server:
             resources:
-              requests: {cpu: 10m, memory: 128Mi}
-          distributor:
-            resources:
-              requests: {cpu: 10m, memory: 64Mi}
-          querier:
-            resources:
-              requests: {cpu: 10m, memory: 128Mi}
-          query_frontend:
-            resources:
-              requests: {cpu: 10m, memory: 64Mi}
-          store_gateway:
-            resources:
-              requests: {cpu: 10m, memory: 64Mi}
-          compactor:
-            resources:
-              requests: {cpu: 10m, memory: 64Mi}
-          ruler:
-            resources:
-              requests: {cpu: 10m, memory: 64Mi}
-          minio:
-            enabled: true
-          alertmanager:
-            enabled: false # Use Grafana Alerting
+              requests: {cpu: 100m, memory: 512Mi}
+            persistentVolume:
+              size: 20Gi
+          alertmanager: {enabled: false}
+          pushgateway: {enabled: false}
 
-    # Loki (Logs) - Scalable Mode
+    # Loki (Logs) - Lean Single Binary
     - name: Install Loki
       kubernetes.core.helm:
         name: loki
@@ -230,6 +206,7 @@
         create_namespace: true
         wait: no
         values:
+          deploymentMode: SingleBinary
           loki:
             useTestSchema: true
             auth_enabled: false
@@ -237,63 +214,15 @@
               replication_factor: 1
             storage:
               type: 'filesystem'
-          deploymentMode: SingleBinary
           singleBinary:
             replicas: 1
             resources:
-              requests: {cpu: 10m, memory: 128Mi}
-          # Disable scalable components to avoid conflict
-          read:
-            replicas: 0
-          write:
-            replicas: 0
-          backend:
-            replicas: 0
-          # Tune Cache (Memcached) Resources
-          chunksCache:
-            enabled: true
-            resources:
-              requests: {cpu: 10m, memory: 64Mi} 
-          resultsCache:
-            enabled: true
-            resources:
-              requests: {cpu: 10m, memory: 64Mi}
+              requests: {cpu: 50m, memory: 256Mi}
+          chunksCache: {enabled: false} # Use internal cache to save pods
+          resultsCache: {enabled: false}
           gateway:
             resources:
               requests: {cpu: 10m, memory: 32Mi}
-
-    # Tempo (Traces)
-    - name: Install Tempo
-      kubernetes.core.helm:
-        name: tempo
-        chart_ref: grafana/tempo
-        release_namespace: observability
-        create_namespace: true
-        wait: no
-        values:
-          tempo:
-            storage:
-              trace:
-                backend: local
-                local:
-                  path: /var/tempo/traces
-                wal:
-                  path: /var/tempo/wal
-          # The following `values` block was a duplicate and has been merged or removed if redundant.
-          # If specific `repository` or `tag` values are needed, they should be placed under the `tempo:` key.
-          # For example:
-          #   tempo:
-          #     repository: "grafana/tempo"
-          #     tag: "latest"
-          #     storage:
-          #       trace:
-          #         backend: local
-          #         local:
-          #           path: /var/tempo/traces
-          #         wal:
-          #           path: /var/tempo/wal
-          repository: "grafana/tempo"
-          tag: "latest"
 
     # OpenTelemetry Collector (Disabled due to missing image.repository in chart)
     # - name: Install OpenTelemetry Collector
