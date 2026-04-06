@@ -1,4 +1,4 @@
-apiVersion: networking.k8s.io/v1
+﻿apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: keycloak-ingress
@@ -10,7 +10,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-  - host: auth.bavsworld.com
+  - host: auth.<YOUR-DOMAIN.COM>
     http:
       paths:
       - path: /
@@ -22,5 +22,5 @@ spec:
               number: 80
   tls:
   - hosts:
-    - auth.bavsworld.com
+    - auth.<YOUR-DOMAIN.COM>
     secretName: keycloak-tls
