@@ -1,0 +1,36 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k3s-prune-images
+  namespace: kube-system
+spec:
+  template:
+    spec:
+      hostPID: true
+      tolerations:
+      - key: "node.kubernetes.io/disk-pressure"
+        operator: "Exists"
+        effect: "NoSchedule"
+      containers:
+      - name: prune
+        image: alpine
+        securityContext:
+          privileged: true
+        command: 
+        - /bin/sh
+        - -c
+        - |
+          echo "Starting prune..."
+          chroot /host /usr/local/bin/k3s crictl rmi --prune || echo "k3s crictl failed, trying normal"
+          chroot /host rm -rf /var/lib/docker/tmp/* || true
+          chroot /host /usr/local/bin/k3s crictl rm --force $(chroot /host /usr/local/bin/k3s crictl ps -a -q --state exited) || true
+          chroot /host /usr/local/bin/k3s crictl rmi --prune
+          echo "Prune complete."
+        volumeMounts:
+        - name: host
+          mountPath: /host
+      volumes:
+      - name: host
+        hostPath:
+          path: /
+      restartPolicy: Never

@@ -1,26 +1,19 @@
-﻿apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
 metadata:
-  name: keycloak-ingress
+  name: keycloak-routing
   namespace: platform-services
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
-  ingressClassName: traefik
-  rules:
-  - host: auth.<YOUR-DOMAIN.COM>
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: keycloak
-            port:
-              number: 80
-  tls:
-  - hosts:
-    - auth.<YOUR-DOMAIN.COM>
-    secretName: keycloak-tls
+  hosts:
+  - auth.example.com
+  gateways:
+  - istio-system/default-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: keycloak.platform-services.svc.cluster.local
+        port:
+          number: 80

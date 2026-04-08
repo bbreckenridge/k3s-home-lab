@@ -1,0 +1,6 @@
+resources:
+  - adguard-home.yaml
+  - keycloak-traefik-ingress.yaml
+  - tls-certificate.yaml
+  - letsencrypt-clusterissuer.yaml
+  - default-gateway.yaml

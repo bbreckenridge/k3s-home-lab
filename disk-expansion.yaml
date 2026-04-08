@@ -1,0 +1,33 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: disk-expansion
+  namespace: kube-system
+spec:
+  template:
+    spec:
+      hostPID: true
+      hostNetwork: true
+      tolerations:
+      - key: "node.kubernetes.io/disk-pressure"
+        operator: "Exists"
+        effect: "NoSchedule"
+      containers:
+      - name: exp
+        image: ubuntu:latest
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+        command:
+        - /bin/sh
+        - -c
+        - |
+          chroot /host bash -c "lsblk && df -h / && (lvextend -l +100%FREE /dev/mapper/ubuntu--vg-ubuntu--lv || true) && (resize2fs /dev/mapper/ubuntu--vg-ubuntu--lv || resize2fs /dev/sda1 || resize2fs /dev/sda3 || true) && df -h /"
+        volumeMounts:
+        - name: host
+          mountPath: /host
+      volumes:
+      - name: host
+        hostPath:
+          path: /
+      restartPolicy: Never
