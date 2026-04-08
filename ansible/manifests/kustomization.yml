@@ -1,5 +1,6 @@
 resources:
   - adguard-home.yaml
+  - adguard-home-vs.yaml
   - keycloak-traefik-ingress.yaml
   - tls-certificate.yaml
   - letsencrypt-clusterissuer.yaml

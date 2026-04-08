@@ -1,0 +1,27 @@
+# ============================================================
+# adguard-home-vs.yaml
+#
+# PURPOSE: Expose the AdGuard Home admin UI via Istio mesh.
+# Allows managing DNS rewrites and filter rules through the
+# shared Ingress Gateway rather than directly via the raw
+# LoadBalancer IP.
+# ============================================================
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: adguard-home
+  namespace: adguard-home
+spec:
+  hosts:
+  - "dns.example.com"
+  gateways:
+  - istio-system/default-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: adguard-home.adguard-home.svc.cluster.local
+        port:
+          number: 80
